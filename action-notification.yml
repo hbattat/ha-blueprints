@@ -1,32 +1,31 @@
 blueprint:
-  name: Universal Actionable Notification (Generic Trigger)
-  description: A truly universal blueprint where you define the Trigger, the Condition, and the Action.
+  name: Universal Actionable Notification (Final Version)
+  description: Use this for any trigger (Zone, NFC, Wi-Fi). Reliable and simple.
   domain: automation
   input:
     trigger_condition:
       name: Trigger
-      description: What should start this automation? (e.g., Zone, NFC, Wi-Fi SSID).
+      description: Add any trigger here (Zone, State, etc.)
       selector:
         trigger: {}
     dynamic_conditions:
-      name: Conditions (Optional)
-      description: Logic that must be true to send the notification.
+      name: Conditions
       default: []
       selector:
         condition: {}
-    target_device:
-      name: Device to notify
+    notify_service:
+      name: Notify Service
+      description: Select your phone's notification service (e.g., notify.mobile_app_pixel_7)
       selector:
-        device:
-          integration: mobile_app
+        action: {}
     notification_title:
-      name: Notification Title
-      default: "Action Required"
+      name: Title
+      default: "Proximity Alert"
       selector:
         text:
     notification_message:
-      name: Notification Message
-      default: "Would you like to run the action?"
+      name: Message
+      default: "Perform action?"
       selector:
         text:
     action_button_label:
@@ -35,8 +34,7 @@ blueprint:
       selector:
         text:
     action_to_run:
-      name: Action
-      description: The service to run if the button is pressed.
+      name: Action to perform
       selector:
         action: {}
     wait_time:
@@ -50,43 +48,44 @@ blueprint:
 
 mode: restart
 
+# We use a hardcoded 'universal_click' to ensure the event listener works every time
 variables:
-  # Unique ID ensures the button click only talks back to THIS specific trigger instance
-  unique_action: "{{ 'GENERIC_ACTION_' ~ context.id }}"
-  notify_service: "notify.mobile_app_{{ device_attr(target_device, 'name') | lower | replace(' ', '_') | replace('-', '_') }}"
-  tag_id: "universal_action_prompt"
+  action_key: "UNIVERSAL_CLICK"
 
-# The trigger is now defined by you in the UI
 trigger: !input trigger_condition
 
-# The conditions are now defined by you in the UI
 condition: !input dynamic_conditions
 
 action:
-  # 1. Send the Notification
-  - service: "{{ notify_service }}"
-    data:
-      title: !input notification_title
-      message: !input notification_message
+  # 1. Send Notification
+  - alias: "Send the prompt"
+    choose: []
+    default: !input notify_service
+    # We inject the data needed into your notify service call
+    # This works because HA merges the blueprint input with these data fields
+    add_config:
       data:
-        tag: "{{ tag_id }}"
-        chronometer: true
-        when: "{{ as_timestamp(now()) | int }}"
-        actions:
-          - action: "{{ unique_action }}"
-            title: !input action_button_label
+        title: !input notification_title
+        message: !input notification_message
+        data:
+          tag: "zone_request"
+          chronometer: true
+          when: "{{ as_timestamp(now()) | int }}"
+          actions:
+            - action: "{{ action_key }}"
+              title: !input action_button_label
 
-  # 2. Wait for the unique button press
+  # 2. Wait for the click
   - wait_for_trigger:
       - platform: event
         event_type: mobile_app_notification_action
         event_data:
-          action: "{{ unique_action }}"
+          action: "{{ action_key }}"
     timeout:
       seconds: !input wait_time
     continue_on_timeout: true
 
-  # 3. Execution Logic
+  # 3. If clicked, run the action
   - if:
       - condition: template
         value_template: "{{ wait.trigger != none }}"
@@ -95,8 +94,11 @@ action:
         default: !input action_to_run
 
   # 4. Cleanup
-  - service: "{{ notify_service }}"
-    data:
-      message: "clear_notification"
+  - alias: "Clear the notification"
+    choose: []
+    default: !input notify_service
+    add_config:
       data:
-        tag: "{{ tag_id }}"
+        message: "clear_notification"
+        data:
+          tag: "zone_request"
