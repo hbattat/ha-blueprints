@@ -1,0 +1,99 @@
+blueprint:
+  name: Generic Actionable Zone Notification
+  description: Send a notification with a customizable action button when entering a zone.
+  domain: automation
+  input:
+    target_device:
+      name: Device to notify
+      description: The mobile device that will receive the notification.
+      selector:
+        device:
+          integration: mobile_app
+    tracker_entity:
+      name: Device Tracker
+      description: The person or device tracker to monitor.
+      selector:
+        entity:
+          domain: device_tracker
+    zone_entity:
+      name: Zone
+      description: The zone that triggers the notification.
+      selector:
+        entity:
+          domain: zone
+    notification_title:
+      name: Notification Title
+      default: "Proximity Alert"
+      selector:
+        text:
+    notification_message:
+      name: Notification Message
+      default: "You are nearby. Perform action?"
+      selector:
+        text:
+    action_button_label:
+      name: Button Label
+      default: "Run Action"
+      selector:
+        text:
+    action_to_run:
+      name: Action
+      description: The service to call when the button is pressed (e.g., cover.open_cover).
+      selector:
+        action: {}
+    wait_time:
+      name: Timeout
+      description: How long to wait before the notification disappears.
+      default: 45
+      selector:
+        number:
+          min: 5
+          max: 300
+          unit_of_measurement: seconds
+
+mode: restart
+
+# This allows the blueprint to store the action locally
+variables:
+  action_to_run: !input action_to_run
+  # Dynamic notification service discovery
+  notify_service: "notify.mobile_app_{{ device_attr(target_device, 'name') | lower | replace(' ', '_') | replace('-', '_') }}"
+
+trigger:
+  - platform: zone
+    entity_id: !input tracker_entity
+    zone: !input zone_entity
+    event: enter
+
+action:
+  # 1. Send the Notification
+  - service: "{{ notify_service }}"
+    data:
+      title: !input notification_title
+      message: !input notification_message
+      data:
+        tag: "zone_action_prompt"
+        actions:
+          - action: "GENERIC_ACTION_TRIGGERED"
+            title: !input action_button_label
+
+  # 2. Wait for either the button press OR the timeout
+  - wait_for_trigger:
+      - platform: event
+        event_type: mobile_app_notification_action
+        event_data:
+          action: "GENERIC_ACTION_TRIGGERED"
+    timeout:
+      seconds: !input wait_time
+    continue_on_timeout: false
+
+  # 3. If triggered before timeout, run the user-defined action
+  - choose: []
+    default: !input action_to_run
+
+  # 4. Clear the notification immediately after action
+  - service: "{{ notify_service }}"
+    data:
+      message: "clear_notification"
+      data:
+        tag: "zone_action_prompt"
