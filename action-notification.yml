@@ -1,6 +1,6 @@
 blueprint:
-  name: Garage Arrival Prompt (Timer Version)
-  description: Logic from version 1 converted into a Blueprint with a visual timer.
+  name: Actionable Zone Prompt with Timer
+  description: Trigger a notification with a visual timer and a custom action when entering a zone.
   domain: automation
   input:
     target_device:
@@ -18,11 +18,16 @@ blueprint:
       selector:
         entity:
           domain: zone
-    cover_entity:
-      name: Garage Door
+    action_button_label:
+      name: Button Label
+      default: "Perform Action"
       selector:
-        entity:
-          domain: cover
+        text:
+    action_to_run:
+      name: Action
+      description: The service to run when the button is pressed.
+      selector:
+        action: {}
     wait_time:
       name: Timeout (Seconds)
       default: 45
@@ -35,9 +40,11 @@ blueprint:
 mode: restart
 
 variables:
-  # This matches the naming convention used in your first working version
+  # Finds the notify service for your Pixel 7 automatically
   notify_service: "notify.mobile_app_{{ device_attr(target_device, 'name') | lower | replace(' ', '_') | replace('-', '_') }}"
-  tag_id: "garage_arrival_timer"
+  # Unique action key to prevent cross-talk with other automations
+  unique_action: "{{ 'ZONE_ACTION_' ~ context.id }}"
+  tag_id: "zone_arrival_timer"
 
 trigger:
   - platform: zone
@@ -45,24 +52,19 @@ trigger:
     zone: !input zone_entity
     event: enter
 
-condition:
-  - condition: state
-    entity_id: !input cover_entity
-    state: "closed"
-
 action:
   # 1. Send the Notification with Chronometer (Visual Timer)
   - service: "{{ notify_service }}"
     data:
-      title: "Arriving Home"
-      message: "Would you like to open the garage door?"
+      title: "Arriving at Zone"
+      message: "Would you like to perform the action?"
       data:
         tag: "{{ tag_id }}"
         chronometer: true
         when: "{{ as_timestamp(now()) | int }}"
         actions:
-          - action: "OPEN_GARAGE"
-            title: "Open Garage"
+          - action: "{{ unique_action }}"
+            title: !input action_button_label
           - action: "DISMISS"
             title: "Dismiss"
 
@@ -71,21 +73,20 @@ action:
       - platform: event
         event_type: mobile_app_notification_action
         event_data:
-          action: "OPEN_GARAGE"
+          action: "{{ unique_action }}"
     timeout:
       seconds: !input wait_time
     continue_on_timeout: true
 
-  # 3. Check if we should open the door (only if button was pressed)
+  # 3. Check if we should run the action (only if button was pressed)
   - if:
       - condition: template
         value_template: "{{ wait.trigger != none }}"
     then:
-      - service: cover.open_cover
-        target:
-          entity_id: !input cover_entity
+      - choose: []
+        default: !input action_to_run
 
-  # 4. Cleanup: Dismiss the notification regardless of what happened
+  # 4. Cleanup: Dismiss the notification regardless of outcome
   - service: "{{ notify_service }}"
     data:
       message: "clear_notification"
