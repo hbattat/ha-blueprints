@@ -1,43 +1,28 @@
 blueprint:
-  name: Universal Actionable Notification (Fixed)
-  description: A robust, trigger-generic actionable notification blueprint.
+  name: Garage Arrival Prompt (Timer Version)
+  description: Logic from version 1 converted into a Blueprint with a visual timer.
   domain: automation
   input:
-    trigger_condition:
-      name: Trigger
-      description: The event that starts the automation.
-      selector:
-        trigger: {}
-    dynamic_conditions:
-      name: Conditions
-      default: []
-      selector:
-        condition: {}
-    notify_device:
+    target_device:
       name: Device to notify
-      description: Select the mobile app device.
       selector:
         device:
           integration: mobile_app
-    notification_title:
-      name: Title
-      default: "Proximity Alert"
+    tracker_entity:
+      name: Device Tracker
       selector:
-        text:
-    notification_message:
-      name: Message
-      default: "Perform action?"
+        entity:
+          domain: device_tracker
+    zone_entity:
+      name: Zone
       selector:
-        text:
-    action_button_label:
-      name: Button Label
-      default: "Confirm"
+        entity:
+          domain: zone
+    cover_entity:
+      name: Garage Door
       selector:
-        text:
-    action_to_run:
-      name: Action to perform
-      selector:
-        action: {}
+        entity:
+          domain: cover
     wait_time:
       name: Timeout (Seconds)
       default: 45
@@ -50,51 +35,57 @@ blueprint:
 mode: restart
 
 variables:
-  # Map the inputs to variables for use in templates
-  notify_service: "notify.mobile_app_{{ device_attr(notify_device, 'name') | lower | replace(' ', '_') | replace('-', '_') }}"
-  action_key: "UNIVERSAL_CLICK"
-  tag_id: "zone_request"
-  title: !input notification_title
-  message: !input notification_message
-  button_label: !input action_button_label
+  # This matches the naming convention used in your first working version
+  notify_service: "notify.mobile_app_{{ device_attr(target_device, 'name') | lower | replace(' ', '_') | replace('-', '_') }}"
+  tag_id: "garage_arrival_timer"
 
-trigger: !input trigger_condition
+trigger:
+  - platform: zone
+    entity_id: !input tracker_entity
+    zone: !input zone_entity
+    event: enter
 
-condition: !input dynamic_conditions
+condition:
+  - condition: state
+    entity_id: !input cover_entity
+    state: "closed"
 
 action:
-  # 1. Send Notification
+  # 1. Send the Notification with Chronometer (Visual Timer)
   - service: "{{ notify_service }}"
     data:
-      title: "{{ title }}"
-      message: "{{ message }}"
+      title: "Arriving Home"
+      message: "Would you like to open the garage door?"
       data:
         tag: "{{ tag_id }}"
         chronometer: true
         when: "{{ as_timestamp(now()) | int }}"
         actions:
-          - action: "{{ action_key }}"
-            title: "{{ button_label }}"
+          - action: "OPEN_GARAGE"
+            title: "Open Garage"
+          - action: "DISMISS"
+            title: "Dismiss"
 
-  # 2. Wait for the click
+  # 2. Wait for the specific button press OR the timeout
   - wait_for_trigger:
       - platform: event
         event_type: mobile_app_notification_action
         event_data:
-          action: "{{ action_key }}"
+          action: "OPEN_GARAGE"
     timeout:
       seconds: !input wait_time
     continue_on_timeout: true
 
-  # 3. If clicked, run the action
+  # 3. Check if we should open the door (only if button was pressed)
   - if:
       - condition: template
         value_template: "{{ wait.trigger != none }}"
     then:
-      - choose: []
-        default: !input action_to_run
+      - service: cover.open_cover
+        target:
+          entity_id: !input cover_entity
 
-  # 4. Cleanup
+  # 4. Cleanup: Dismiss the notification regardless of what happened
   - service: "{{ notify_service }}"
     data:
       message: "clear_notification"
