@@ -1,6 +1,6 @@
 blueprint:
-  name: Actionable Zone Prompt with Timer
-  description: Trigger a notification with a visual timer and a custom action when entering a zone.
+  name: Universal Actionable Zone Prompt
+  description: Trigger a notification with a visual timer and any custom action when entering a zone.
   domain: automation
   input:
     target_device:
@@ -18,14 +18,24 @@ blueprint:
       selector:
         entity:
           domain: zone
+    notification_title:
+      name: Notification Title
+      default: "Proximity Alert"
+      selector:
+        text:
+    notification_message:
+      name: Notification Message
+      default: "Would you like to perform the action?"
+      selector:
+        text:
     action_button_label:
       name: Button Label
-      default: "Perform Action"
+      default: "Confirm"
       selector:
         text:
     action_to_run:
-      name: Action
-      description: The service to run when the button is pressed.
+      name: Action to perform
+      description: The service(s) to run when the button is pressed.
       selector:
         action: {}
     wait_time:
@@ -40,9 +50,9 @@ blueprint:
 mode: restart
 
 variables:
-  # Finds the notify service for your Pixel 7 automatically
+  # Dynamically generates the notify service for your Pixel 7
   notify_service: "notify.mobile_app_{{ device_attr(target_device, 'name') | lower | replace(' ', '_') | replace('-', '_') }}"
-  # Unique action key to prevent cross-talk with other automations
+  # Unique action key ensures clicks don't interfere with other automations
   unique_action: "{{ 'ZONE_ACTION_' ~ context.id }}"
   tag_id: "zone_arrival_timer"
 
@@ -56,8 +66,8 @@ action:
   # 1. Send the Notification with Chronometer (Visual Timer)
   - service: "{{ notify_service }}"
     data:
-      title: "Arriving at Zone"
-      message: "Would you like to perform the action?"
+      title: !input notification_title
+      message: !input notification_message
       data:
         tag: "{{ tag_id }}"
         chronometer: true
@@ -78,15 +88,16 @@ action:
       seconds: !input wait_time
     continue_on_timeout: true
 
-  # 3. Check if we should run the action (only if button was pressed)
+  # 3. Check if we should run the action
   - if:
       - condition: template
         value_template: "{{ wait.trigger != none }}"
     then:
+      # This runs whatever arbitrary actions you picked in the UI
       - choose: []
         default: !input action_to_run
 
-  # 4. Cleanup: Dismiss the notification regardless of outcome
+  # 4. Cleanup: Dismiss the notification automatically
   - service: "{{ notify_service }}"
     data:
       message: "clear_notification"
