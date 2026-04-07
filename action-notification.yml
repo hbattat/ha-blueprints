@@ -1,6 +1,6 @@
 blueprint:
-  name: Universal Zone Action Prompt
-  description: Trigger a notification with a visual timer and ANY custom action/condition when entering a zone.
+  name: Universal Zone Action Prompt (Final Reliability Fix)
+  description: Trigger a notification with a visual timer and ANY custom action/condition.
   domain: automation
   input:
     target_device:
@@ -20,18 +20,17 @@ blueprint:
           domain: zone
     extra_conditions:
       name: Conditions (Optional)
-      description: Any conditions that must be met to send the notification (e.g., Garage is closed).
       default: []
       selector:
         condition: {}
     notification_title:
-      name: Notification Title
+      name: Title
       default: "Proximity Alert"
       selector:
         text:
     notification_message:
-      name: Notification Message
-      default: "Would you like to perform the action?"
+      name: Message
+      default: "Perform action?"
       selector:
         text:
     action_button_label:
@@ -41,7 +40,6 @@ blueprint:
         text:
     action_to_run:
       name: Action to perform
-      description: The service(s) to run when the button is pressed.
       selector:
         action: {}
     wait_time:
@@ -55,24 +53,25 @@ blueprint:
 
 mode: restart
 
-variables:
-  # Dynamically generates the notify service for your phone
-  notify_service: "notify.mobile_app_{{ device_attr(target_device, 'name') | lower | replace(' ', '_') | replace('-', '_') }}"
-  # Unique action key ensures clicks don't interfere with other automations
-  unique_action: "{{ 'ZONE_ACTION_' ~ context.id }}"
-  tag_id: "zone_arrival_timer"
-
 trigger:
   - platform: zone
     entity_id: !input tracker_entity
     zone: !input zone_entity
     event: enter
 
-# This section now handles your "Garage is Closed" or any other logic
 condition: !input extra_conditions
 
 action:
-  # 1. Send the Notification with Chronometer (Visual Timer)
+  # Define variables inside the action block for better reliability during manual "Run"
+  - variables:
+      # This logic is more robust for finding the notify service
+      device_name: "{{ device_attr(target_device, 'name') | lower | replace(' ', '_') | replace('-', '_') }}"
+      notify_service: "notify.mobile_app_{{ device_name }}"
+      # Fallback unique ID
+      unique_action: "{{ 'ZONE_ACTION_' ~ (context.id if context.id is not none else 'manual_test') }}"
+      tag_id: "zone_arrival_timer"
+
+  # 1. Send the Notification
   - service: "{{ notify_service }}"
     data:
       title: !input notification_title
@@ -87,7 +86,7 @@ action:
           - action: "DISMISS"
             title: "Dismiss"
 
-  # 2. Wait for the specific button press OR the timeout
+  # 2. Wait for the click
   - wait_for_trigger:
       - platform: event
         event_type: mobile_app_notification_action
@@ -97,16 +96,15 @@ action:
       seconds: !input wait_time
     continue_on_timeout: true
 
-  # 3. Check if the button was pressed
+  # 3. Action Logic
   - if:
       - condition: template
         value_template: "{{ wait.trigger != none }}"
     then:
-      # This runs WHATEVER arbitrary actions you picked in the UI
       - choose: []
         default: !input action_to_run
 
-  # 4. Cleanup: Dismiss the notification automatically
+  # 4. Cleanup
   - service: "{{ notify_service }}"
     data:
       message: "clear_notification"
