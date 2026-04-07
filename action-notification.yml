@@ -1,25 +1,42 @@
 blueprint:
-  name: Generic Actionable Zone Notification (Stable Version)
-  description: Use this version if the previous one failed to trigger the action.
+  name: Universal Actionable Notification (Generic Trigger)
+  description: A truly universal blueprint where you define the Trigger, the Condition, and the Action.
   domain: automation
   input:
+    trigger_condition:
+      name: Trigger
+      description: What should start this automation? (e.g., Zone, NFC, Wi-Fi SSID).
+      selector:
+        trigger: {}
+    dynamic_conditions:
+      name: Conditions (Optional)
+      description: Logic that must be true to send the notification.
+      default: []
+      selector:
+        condition: {}
     target_device:
       name: Device to notify
       selector:
         device:
           integration: mobile_app
-    tracker_entity:
-      name: Device Tracker
+    notification_title:
+      name: Notification Title
+      default: "Action Required"
       selector:
-        entity:
-          domain: device_tracker
-    zone_entity:
-      name: Zone
+        text:
+    notification_message:
+      name: Notification Message
+      default: "Would you like to run the action?"
       selector:
-        entity:
-          domain: zone
+        text:
+    action_button_label:
+      name: Button Label
+      default: "Confirm"
+      selector:
+        text:
     action_to_run:
       name: Action
+      description: The service to run if the button is pressed.
       selector:
         action: {}
     wait_time:
@@ -31,33 +48,35 @@ blueprint:
           max: 300
           unit_of_measurement: seconds
 
-mode: restart # This is important to handle GPS "flutter"
+mode: restart
 
 variables:
-  # Create a unique action name for this specific automation instance
-  # This prevents multiple automations from intercepting each other's clicks
+  # Unique ID ensures the button click only talks back to THIS specific trigger instance
   unique_action: "{{ 'GENERIC_ACTION_' ~ context.id }}"
   notify_service: "notify.mobile_app_{{ device_attr(target_device, 'name') | lower | replace(' ', '_') | replace('-', '_') }}"
+  tag_id: "universal_action_prompt"
 
-trigger:
-  - platform: zone
-    entity_id: !input tracker_entity
-    zone: !input zone_entity
-    event: enter
+# The trigger is now defined by you in the UI
+trigger: !input trigger_condition
+
+# The conditions are now defined by you in the UI
+condition: !input dynamic_conditions
 
 action:
+  # 1. Send the Notification
   - service: "{{ notify_service }}"
     data:
-      title: "Proximity Alert"
-      message: "Perform action?"
+      title: !input notification_title
+      message: !input notification_message
       data:
-        tag: "zone_notification"
+        tag: "{{ tag_id }}"
         chronometer: true
         when: "{{ as_timestamp(now()) | int }}"
         actions:
           - action: "{{ unique_action }}"
-            title: "Confirm"
+            title: !input action_button_label
 
+  # 2. Wait for the unique button press
   - wait_for_trigger:
       - platform: event
         event_type: mobile_app_notification_action
@@ -67,6 +86,7 @@ action:
       seconds: !input wait_time
     continue_on_timeout: true
 
+  # 3. Execution Logic
   - if:
       - condition: template
         value_template: "{{ wait.trigger != none }}"
@@ -74,8 +94,9 @@ action:
       - choose: []
         default: !input action_to_run
 
+  # 4. Cleanup
   - service: "{{ notify_service }}"
     data:
       message: "clear_notification"
       data:
-        tag: "zone_notification"
+        tag: "{{ tag_id }}"
