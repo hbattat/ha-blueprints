@@ -1,27 +1,54 @@
 blueprint:
-  name: "Universal Zone Script-Automation"
-  description: "Acts like a script but triggers like an automation."
+  name: Universal Zone Prompt (Live Timer)
+  description: "Rock-solid zone prompt with a live ticking timer and auto-dismissal."
   domain: automation
   input:
     tracker_entity:
-      name: Who to track?
+      name: Device Tracker
+      description: The entity to monitor (e.g., device_tracker.pixel_7).
       selector:
         entity:
           domain: device_tracker
     zone_entity:
-      name: Which zone?
+      name: Zone
+      description: The zone that triggers the prompt.
       selector:
         entity:
           domain: zone
     notify_device:
       name: Device to notify
+      description: The mobile device to receive the notification.
       selector:
         device:
           integration: mobile_app
+    notification_title:
+      name: Title
+      default: "Proximity Alert"
+      selector:
+        text:
+    notification_message:
+      name: Message
+      default: "Perform action?"
+      selector:
+        text:
+    action_button_label:
+      name: Button Label
+      default: "Confirm"
+      selector:
+        text:
     action_to_run:
       name: Action to perform
       selector:
         action: {}
+    wait_time:
+      name: Timeout (Seconds)
+      description: How long the notification stays on your phone before disappearing.
+      default: 45
+      selector:
+        number:
+          min: 5
+          max: 300
+          unit_of_measurement: seconds
 
 mode: restart
 
@@ -32,28 +59,35 @@ trigger:
     event: enter
 
 action:
-  # This section behaves exactly like a standalone script
+  # 1. Send the Notification with Chronometer
   - alias: "Send Notification"
     domain: mobile_app
     type: notify
     device_id: !input notify_device
-    title: "Proximity Alert"
-    message: "Run the action?"
+    title: !input notification_title
+    message: !input notification_message
     data:
       tag: "zone_prompt"
+      # Android Visual Timer settings
       chronometer: true
       when: "{{ as_timestamp(now()) | int }}"
       actions:
-        - action: "EXECUTE"
-          title: "Confirm"
+        - action: "EXECUTE_CLICK"
+          title: !input action_button_label
+        - action: "DISMISS_CLICK"
+          title: "Dismiss"
 
+  # 2. Wait for the button press OR the timeout
   - wait_for_trigger:
       - platform: event
         event_type: mobile_app_notification_action
         event_data:
-          action: "EXECUTE"
-    timeout: "00:00:45"
+          action: "EXECUTE_CLICK"
+    timeout:
+      seconds: !input wait_time
+    continue_on_timeout: true
 
+  # 3. If "EXECUTE" was clicked before timeout, run the action
   - if:
       - condition: template
         value_template: "{{ wait.trigger != none }}"
@@ -61,7 +95,8 @@ action:
       - choose: []
         default: !input action_to_run
 
-  - alias: "Dismiss Notification"
+  # 4. Final Cleanup (Always runs after 45s or a click)
+  - alias: "Clear Notification"
     domain: mobile_app
     type: notify
     device_id: !input notify_device
