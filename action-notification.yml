@@ -1,6 +1,6 @@
 blueprint:
-  name: Universal Actionable Zone Prompt
-  description: Trigger a notification with a visual timer and any custom action when entering a zone.
+  name: Universal Zone Action Prompt
+  description: Trigger a notification with a visual timer and ANY custom action/condition when entering a zone.
   domain: automation
   input:
     target_device:
@@ -18,6 +18,12 @@ blueprint:
       selector:
         entity:
           domain: zone
+    extra_conditions:
+      name: Conditions (Optional)
+      description: Any conditions that must be met to send the notification (e.g., Garage is closed).
+      default: []
+      selector:
+        condition: {}
     notification_title:
       name: Notification Title
       default: "Proximity Alert"
@@ -50,7 +56,7 @@ blueprint:
 mode: restart
 
 variables:
-  # Dynamically generates the notify service for your Pixel 7
+  # Dynamically generates the notify service for your phone
   notify_service: "notify.mobile_app_{{ device_attr(target_device, 'name') | lower | replace(' ', '_') | replace('-', '_') }}"
   # Unique action key ensures clicks don't interfere with other automations
   unique_action: "{{ 'ZONE_ACTION_' ~ context.id }}"
@@ -61,6 +67,9 @@ trigger:
     entity_id: !input tracker_entity
     zone: !input zone_entity
     event: enter
+
+# This section now handles your "Garage is Closed" or any other logic
+condition: !input extra_conditions
 
 action:
   # 1. Send the Notification with Chronometer (Visual Timer)
@@ -88,12 +97,12 @@ action:
       seconds: !input wait_time
     continue_on_timeout: true
 
-  # 3. Check if we should run the action
+  # 3. Check if the button was pressed
   - if:
       - condition: template
         value_template: "{{ wait.trigger != none }}"
     then:
-      # This runs whatever arbitrary actions you picked in the UI
+      # This runs WHATEVER arbitrary actions you picked in the UI
       - choose: []
         default: !input action_to_run
 
