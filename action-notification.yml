@@ -1,6 +1,6 @@
 blueprint:
-  name: Generic Actionable Zone Notification (Chronometer)
-  description: Sends a notification with a live "time elapsed" counter and auto-clears.
+  name: Generic Actionable Zone Notification (Stable Version)
+  description: Use this version if the previous one failed to trigger the action.
   domain: automation
   input:
     target_device:
@@ -18,21 +18,6 @@ blueprint:
       selector:
         entity:
           domain: zone
-    notification_title:
-      name: Notification Title
-      default: "Near Home"
-      selector:
-        text:
-    notification_message:
-      name: Notification Message
-      default: "Would you like to perform the action?"
-      selector:
-        text:
-    action_button_label:
-      name: Button Label
-      default: "Run Action"
-      selector:
-        text:
     action_to_run:
       name: Action
       selector:
@@ -46,13 +31,13 @@ blueprint:
           max: 300
           unit_of_measurement: seconds
 
-mode: restart
+mode: restart # This is important to handle GPS "flutter"
 
 variables:
-  action_to_run: !input action_to_run
-  # Ensures we target the correct mobile app notify service
+  # Create a unique action name for this specific automation instance
+  # This prevents multiple automations from intercepting each other's clicks
+  unique_action: "{{ 'GENERIC_ACTION_' ~ context.id }}"
   notify_service: "notify.mobile_app_{{ device_attr(target_device, 'name') | lower | replace(' ', '_') | replace('-', '_') }}"
-  tag_id: "zone_action_timer"
 
 trigger:
   - platform: zone
@@ -61,30 +46,27 @@ trigger:
     event: enter
 
 action:
-  # 1. Send the Notification with Chronometer
   - service: "{{ notify_service }}"
     data:
-      title: !input notification_title
-      message: !input notification_message
+      title: "Proximity Alert"
+      message: "Perform action?"
       data:
-        tag: "{{ tag_id }}"
-        chronometer: true # This starts the live timer on Android
-        when: "{{ as_timestamp(now()) | int }}" # Sets the "start" time to now
+        tag: "zone_notification"
+        chronometer: true
+        when: "{{ as_timestamp(now()) | int }}"
         actions:
-          - action: "GENERIC_ACTION_TRIGGERED"
-            title: !input action_button_label
+          - action: "{{ unique_action }}"
+            title: "Confirm"
 
-  # 2. Wait for the button press OR the timeout
   - wait_for_trigger:
       - platform: event
         event_type: mobile_app_notification_action
         event_data:
-          action: "GENERIC_ACTION_TRIGGERED"
+          action: "{{ unique_action }}"
     timeout:
       seconds: !input wait_time
     continue_on_timeout: true
 
-  # 3. If the button was pressed, run the action
   - if:
       - condition: template
         value_template: "{{ wait.trigger != none }}"
@@ -92,9 +74,8 @@ action:
       - choose: []
         default: !input action_to_run
 
-  # 4. Final Cleanup: Clear the notification from the phone
   - service: "{{ notify_service }}"
     data:
       message: "clear_notification"
       data:
-        tag: "{{ tag_id }}"
+        tag: "zone_notification"
