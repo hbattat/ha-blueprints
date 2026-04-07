@@ -1,6 +1,6 @@
 blueprint:
-  name: Generic Actionable Zone Notification with Progress Bar
-  description: Sends a notification with a progress bar and a live timer when entering a zone.
+  name: Generic Actionable Zone Notification (Chronometer)
+  description: Sends a notification with a live "time elapsed" counter and auto-clears.
   domain: automation
   input:
     target_device:
@@ -20,17 +20,17 @@ blueprint:
           domain: zone
     notification_title:
       name: Notification Title
-      default: "Proximity Alert"
+      default: "Near Home"
       selector:
         text:
     notification_message:
       name: Notification Message
-      default: "Action required. This prompt expires soon."
+      default: "Would you like to perform the action?"
       selector:
         text:
     action_button_label:
       name: Button Label
-      default: "Confirm Action"
+      default: "Run Action"
       selector:
         text:
     action_to_run:
@@ -50,10 +50,9 @@ mode: restart
 
 variables:
   action_to_run: !input action_to_run
-  # Dynamically discover the notification service for the selected device
+  # Ensures we target the correct mobile app notify service
   notify_service: "notify.mobile_app_{{ device_attr(target_device, 'name') | lower | replace(' ', '_') | replace('-', '_') }}"
-  tag_id: "zone_action_with_progress"
-  max_progress: !input wait_time
+  tag_id: "zone_action_timer"
 
 trigger:
   - platform: zone
@@ -62,25 +61,20 @@ trigger:
     event: enter
 
 action:
-  # 1. Send the Notification with Progress Bar and Chronometer
+  # 1. Send the Notification with Chronometer
   - service: "{{ notify_service }}"
     data:
       title: !input notification_title
       message: !input notification_message
       data:
         tag: "{{ tag_id }}"
-        # Android Specific Visuals
-        chronometer: true # Shows a timer counting UP from 0
-        when: "{{ as_timestamp(now()) | int }}" 
-        progress: "{{ max_progress }}" # Shows a progress bar at "Full"
-        max: "{{ max_progress }}"
-        persistent: true # Prevents accidental swiping
-        sticky: true
+        chronometer: true # This starts the live timer on Android
+        when: "{{ as_timestamp(now()) | int }}" # Sets the "start" time to now
         actions:
           - action: "GENERIC_ACTION_TRIGGERED"
             title: !input action_button_label
 
-  # 2. Wait for the button press or the timeout
+  # 2. Wait for the button press OR the timeout
   - wait_for_trigger:
       - platform: event
         event_type: mobile_app_notification_action
@@ -90,19 +84,15 @@ action:
       seconds: !input wait_time
     continue_on_timeout: true
 
-  # 3. Decision Logic
+  # 3. If the button was pressed, run the action
   - if:
       - condition: template
         value_template: "{{ wait.trigger != none }}"
     then:
-      # If button was pressed, run the user-defined action
       - choose: []
         default: !input action_to_run
-    else:
-      # If timed out, we stop here (notification will be cleared next)
-      - stop: "User did not respond within the timeframe."
 
-  # 4. Final Cleanup: Clear the notification from the phone's tray
+  # 4. Final Cleanup: Clear the notification from the phone
   - service: "{{ notify_service }}"
     data:
       message: "clear_notification"
