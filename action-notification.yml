@@ -1,55 +1,27 @@
 blueprint:
-  name: Universal Zone Action Prompt (Final Reliability Fix)
-  description: Trigger a notification with a visual timer and ANY custom action/condition.
+  name: "Universal Zone Script-Automation"
+  description: "Acts like a script but triggers like an automation."
   domain: automation
   input:
-    target_device:
-      name: Device to notify
-      selector:
-        device:
-          integration: mobile_app
     tracker_entity:
-      name: Device Tracker
+      name: Who to track?
       selector:
         entity:
           domain: device_tracker
     zone_entity:
-      name: Zone
+      name: Which zone?
       selector:
         entity:
           domain: zone
-    extra_conditions:
-      name: Conditions (Optional)
-      default: []
+    notify_device:
+      name: Device to notify
       selector:
-        condition: {}
-    notification_title:
-      name: Title
-      default: "Proximity Alert"
-      selector:
-        text:
-    notification_message:
-      name: Message
-      default: "Perform action?"
-      selector:
-        text:
-    action_button_label:
-      name: Button Label
-      default: "Confirm"
-      selector:
-        text:
+        device:
+          integration: mobile_app
     action_to_run:
       name: Action to perform
       selector:
         action: {}
-    wait_time:
-      name: Timeout (Seconds)
-      default: 45
-      selector:
-        number:
-          min: 5
-          max: 300
-          unit_of_measurement: seconds
 
 mode: restart
 
@@ -59,44 +31,29 @@ trigger:
     zone: !input zone_entity
     event: enter
 
-condition: !input extra_conditions
-
 action:
-  # Define variables inside the action block for better reliability during manual "Run"
-  - variables:
-      # This logic is more robust for finding the notify service
-      device_name: "{{ device_attr(target_device, 'name') | lower | replace(' ', '_') | replace('-', '_') }}"
-      notify_service: "notify.mobile_app_{{ device_name }}"
-      # Fallback unique ID
-      unique_action: "{{ 'ZONE_ACTION_' ~ (context.id if context.id is not none else 'manual_test') }}"
-      tag_id: "zone_arrival_timer"
-
-  # 1. Send the Notification
-  - service: "{{ notify_service }}"
+  # This section behaves exactly like a standalone script
+  - alias: "Send Notification"
+    domain: mobile_app
+    type: notify
+    device_id: !input notify_device
+    title: "Proximity Alert"
+    message: "Run the action?"
     data:
-      title: !input notification_title
-      message: !input notification_message
-      data:
-        tag: "{{ tag_id }}"
-        chronometer: true
-        when: "{{ as_timestamp(now()) | int }}"
-        actions:
-          - action: "{{ unique_action }}"
-            title: !input action_button_label
-          - action: "DISMISS"
-            title: "Dismiss"
+      tag: "zone_prompt"
+      chronometer: true
+      when: "{{ as_timestamp(now()) | int }}"
+      actions:
+        - action: "EXECUTE"
+          title: "Confirm"
 
-  # 2. Wait for the click
   - wait_for_trigger:
       - platform: event
         event_type: mobile_app_notification_action
         event_data:
-          action: "{{ unique_action }}"
-    timeout:
-      seconds: !input wait_time
-    continue_on_timeout: true
+          action: "EXECUTE"
+    timeout: "00:00:45"
 
-  # 3. Action Logic
   - if:
       - condition: template
         value_template: "{{ wait.trigger != none }}"
@@ -104,9 +61,10 @@ action:
       - choose: []
         default: !input action_to_run
 
-  # 4. Cleanup
-  - service: "{{ notify_service }}"
+  - alias: "Dismiss Notification"
+    domain: mobile_app
+    type: notify
+    device_id: !input notify_device
+    message: "clear_notification"
     data:
-      message: "clear_notification"
-      data:
-        tag: "{{ tag_id }}"
+      tag: "zone_prompt"
