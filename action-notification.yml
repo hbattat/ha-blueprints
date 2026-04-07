@@ -1,6 +1,6 @@
 blueprint:
-  name: Universal Zone Prompt (Progress Bar)
-  description: "Triggers a notification with a visual progress bar and auto-timeout."
+  name: Universal Zone Prompt (Chronometer & Auto-Dismiss)
+  description: "Triggers a notification with a live timer and clearly stated auto-dismissal."
   domain: automation
   input:
     tracker_entity:
@@ -20,21 +20,22 @@ blueprint:
           integration: mobile_app
     notification_title:
       name: Title
-      default: "Proximity Alert"
+      default: "Arriving at Zone"
       selector:
         text:
     notification_message:
       name: Message
-      default: "Action expires shortly."
+      default: "Action requested. This prompt will auto-dismiss after the timeout."
       selector:
         text:
     action_button_label:
       name: Button Label
-      default: "Confirm"
+      default: "Confirm Action"
       selector:
         text:
     timer_duration:
       name: Timer Duration (Seconds)
+      description: How long the notification stays visible (Visual timer counts UP to this number).
       default: 45
       selector:
         number:
@@ -58,7 +59,7 @@ trigger:
     event: enter
 
 action:
-  # 1. Send the Notification
+  # 1. Send the Notification with Chronometer
   - alias: "Send Notification"
     domain: mobile_app
     type: notify
@@ -67,14 +68,10 @@ action:
     message: !input notification_message
     data:
       tag: "zone_prompt"
-      # Explicitly disable the timer
-      chronometer: false
-      show_when: false
-      # Visual Bar: max is total time, progress is the 'fill'
-      # We set them equal to show a 'full' bar that represents the task duration
-      max: !input timer_duration
-      progress: !input timer_duration
-      # Tell the Android OS to delete the notification after X seconds
+      # Android Visual Timer
+      chronometer: true
+      when: "{{ as_timestamp(now()) | int }}"
+      # Hardware-level dismissal for extra reliability
       timeout_after: !input timer_duration
       actions:
         - action: "EXECUTE_CLICK"
@@ -82,7 +79,7 @@ action:
         - action: "DISMISS_CLICK"
           title: "Dismiss"
 
-  # 2. Wait for the button press
+  # 2. Wait for the button press OR the custom timeout
   - wait_for_trigger:
       - platform: event
         event_type: mobile_app_notification_action
@@ -102,7 +99,7 @@ action:
 
   # 4. Final Cleanup
   - alias: "Clear Notification"
-    domain: mobile_app_notification
+    domain: mobile_app
     type: notify
     device_id: !input notify_device
     message: "clear_notification"
