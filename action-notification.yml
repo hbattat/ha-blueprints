@@ -1,6 +1,6 @@
 blueprint:
-  name: Universal Zone Prompt (Live Timer)
-  description: "Rock-solid zone prompt with a live ticking timer and auto-dismissal."
+  name: Universal Zone Prompt (Adjustable Timer)
+  description: "A rock-solid zone prompt with a customizable visual timer and auto-dismissal."
   domain: automation
   input:
     tracker_entity:
@@ -36,21 +36,25 @@ blueprint:
       default: "Confirm"
       selector:
         text:
-    action_to_run:
-      name: Action to perform
-      selector:
-        action: {}
-    wait_time:
-      name: Timeout (Seconds)
-      description: How long the notification stays on your phone before disappearing.
+    timer_duration:
+      name: Timer Duration (Seconds)
+      description: How long the notification stays visible before auto-dismissing.
       default: 45
       selector:
         number:
           min: 5
           max: 300
           unit_of_measurement: seconds
+    action_to_run:
+      name: Action to perform
+      selector:
+        action: {}
 
 mode: restart
+
+# We map the input to a variable so we can use it in the timeout logic
+variables:
+  timer_seconds: !input timer_duration
 
 trigger:
   - platform: zone
@@ -68,7 +72,6 @@ action:
     message: !input notification_message
     data:
       tag: "zone_prompt"
-      # Android Visual Timer settings
       chronometer: true
       when: "{{ as_timestamp(now()) | int }}"
       actions:
@@ -77,17 +80,17 @@ action:
         - action: "DISMISS_CLICK"
           title: "Dismiss"
 
-  # 2. Wait for the button press OR the timeout
+  # 2. Wait for the button press OR the custom timeout
   - wait_for_trigger:
       - platform: event
         event_type: mobile_app_notification_action
         event_data:
           action: "EXECUTE_CLICK"
     timeout:
-      seconds: !input wait_time
+      seconds: "{{ timer_seconds }}"
     continue_on_timeout: true
 
-  # 3. If "EXECUTE" was clicked before timeout, run the action
+  # 3. Execution Logic
   - if:
       - condition: template
         value_template: "{{ wait.trigger != none }}"
@@ -95,7 +98,7 @@ action:
       - choose: []
         default: !input action_to_run
 
-  # 4. Final Cleanup (Always runs after 45s or a click)
+  # 4. Final Cleanup
   - alias: "Clear Notification"
     domain: mobile_app
     type: notify
