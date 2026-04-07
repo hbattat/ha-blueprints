@@ -1,6 +1,6 @@
 blueprint:
-  name: Universal Zone Prompt (Progress Bar Version)
-  description: "Uses a static progress bar and system timeout for a cleaner countdown feel."
+  name: Universal Zone Prompt (Progress Bar)
+  description: "Triggers a notification with a visual progress bar and auto-timeout."
   domain: automation
   input:
     tracker_entity:
@@ -25,7 +25,7 @@ blueprint:
         text:
     notification_message:
       name: Message
-      default: "Perform action?"
+      default: "Action expires shortly."
       selector:
         text:
     action_button_label:
@@ -58,7 +58,7 @@ trigger:
     event: enter
 
 action:
-  # 1. Send the Notification with Progress Bar
+  # 1. Send the Notification
   - alias: "Send Notification"
     domain: mobile_app
     type: notify
@@ -67,15 +67,15 @@ action:
     message: !input notification_message
     data:
       tag: "zone_prompt"
-      # Android Visuals
-      notification_icon: "mdi:timer-sand"
-      # Shows a progress bar. We set current and max to the same value
-      # to show the 'limit' of the action.
-      progress: "{{ timer_seconds }}"
-      max: "{{ timer_seconds }}"
-      # Tells Android to automatically dismiss this notification after X seconds
-      # (Note: This is a hardware-level dismiss on the phone)
-      timeout_after: "{{ timer_seconds }}"
+      # Explicitly disable the timer
+      chronometer: false
+      show_when: false
+      # Visual Bar: max is total time, progress is the 'fill'
+      # We set them equal to show a 'full' bar that represents the task duration
+      max: !input timer_duration
+      progress: !input timer_duration
+      # Tell the Android OS to delete the notification after X seconds
+      timeout_after: !input timer_duration
       actions:
         - action: "EXECUTE_CLICK"
           title: !input action_button_label
@@ -100,9 +100,9 @@ action:
       - choose: []
         default: !input action_to_run
 
-  # 4. Final Cleanup (Redundant but safe for HA state)
+  # 4. Final Cleanup
   - alias: "Clear Notification"
-    domain: mobile_app
+    domain: mobile_app_notification
     type: notify
     device_id: !input notify_device
     message: "clear_notification"
