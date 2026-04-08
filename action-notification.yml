@@ -1,26 +1,30 @@
 blueprint:
-  name: Universal Pro Actionable Notification (Text Target)
-  description: "Triggers a notification to a text-defined service or group. No device selectors."
+  name: Universal Pro Actionable Notification (Dropdown)
+  description: "Advanced actionable notification with a device dropdown, visual timer, and dual-layer conditions."
   domain: automation
   input:
     universal_trigger:
       name: Trigger(s)
+      description: "What starts the automation? (e.g., Zone Entry, NFC Tag, Time)."
       selector:
         trigger: {}
     notification_conditions:
       name: Notification Conditions
-      description: "Filters for the trigger (e.g., Person is in Zone, Garage is Closed)."
+      description: "Must be true to SEND the alert (e.g., Garage is closed, Person is in Zone)."
       default: []
       selector:
         condition: {}
-    notify_target:
-      name: Notify Service or Group
-      description: "Type the service name manually (e.g., notify.mobile_app_pixel_7)."
+    notify_device:
+      name: Device to Notify
+      description: "Select your device from the list or type a notify group name."
       selector:
-        text:
+        entity:
+          domain: notify
+          # This gives you the dropdown but lets you type a group name manually
+          multiple: false
     action_conditions:
       name: Action Conditions
-      description: "Filters that must be true when the button is pressed."
+      description: "Must be true to RUN the action (e.g., Safety check before opening door)."
       default: []
       selector:
         condition: {}
@@ -56,8 +60,7 @@ mode: parallel
 max: 10
 
 variables:
-  # Using the new variable name to break the cache
-  target_service: !input notify_target
+  target_service: !input notify_device
   timer_seconds: !input timer_duration
   unique_action: "{{ 'PRO_ACTION_' ~ context.id }}"
   tag_id: "pro_universal_timer"
@@ -93,7 +96,7 @@ action:
       seconds: "{{ timer_seconds }}"
     continue_on_timeout: true
 
-  # 3. Decision Logic
+  # 3. Decision Logic & Final Conditions
   - if:
       - condition: template
         value_template: "{{ wait.trigger != none }}"
