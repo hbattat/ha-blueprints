@@ -1,6 +1,6 @@
 blueprint:
-  name: Universal Pro Actionable Notification (Safe Variables)
-  description: "Triggers a notification with a timer to multiple devices. Fixes the 'Unknown Device' error by pre-calculating service names."
+  name: Universal Pro Actionable Notification (Service-Group)
+  description: "Triggers a notification to a specific notify service or group."
   domain: automation
   input:
     universal_trigger:
@@ -9,18 +9,18 @@ blueprint:
         trigger: {}
     notification_conditions:
       name: Notification Conditions
+      description: "Filters that must be true to send the alert."
       default: []
       selector:
         condition: {}
-    notify_devices:
-      name: Devices to Notify
-      description: Select one or more mobile devices.
+    notify_service:
+      name: Notify Service or Group
+      description: "Enter the service name, e.g., 'notify.mobile_app_pixel_7' or your group name 'notify.family_phones'."
       selector:
-        device:
-          integration: mobile_app
-          multiple: true
+        text:
     action_conditions:
       name: Action Conditions
+      description: "Filters that must be true when you press the button."
       default: []
       selector:
         condition: {}
@@ -56,45 +56,34 @@ mode: parallel
 max: 10
 
 variables:
-  # Pre-calculate everything here so the actions don't have to 'guess'
+  # Map inputs to variables for use in templates
+  service_name: !input notify_service
   timer_seconds: !input timer_duration
   unique_action: "{{ 'PRO_ACTION_' ~ context.id }}"
   tag_id: "pro_universal_timer"
-  # This creates a clean list of notify service names (e.g., ['notify.mobile_app_pixel_7'])
-  notify_services: >
-    {% set devices = notify_devices %}
-    {% set ns = namespace(services=[]) %}
-    {% for device in devices %}
-      {% set name = device_attr(device, 'name') | lower | replace(' ', '_') | replace('-', '_') | replace('\'', '') %}
-      {% set ns.services = ns.services + [ 'notify.mobile_app_' ~ name ] %}
-    {% endfor %}
-    {{ ns.services }}
 
 trigger: !input universal_trigger
 
 condition: !input notification_conditions
 
 action:
-  # 1. Send Notifications to all pre-calculated services
-  - repeat:
-      for_each: "{{ notify_services }}"
-      sequence:
-        - service: "{{ repeat.item }}"
-          data:
-            title: !input notification_title
-            message: !input notification_message
-            data:
-              tag: "{{ tag_id }}"
-              chronometer: true
-              when: "{{ as_timestamp(now()) | int }}"
-              timeout_after: !input timer_duration
-              actions:
-                - action: "{{ unique_action }}"
-                  title: !input action_button_label
-                - action: "DISMISS"
-                  title: "Dismiss"
+  # 1. Send the Notification
+  - service: "{{ service_name }}"
+    data:
+      title: !input notification_title
+      message: !input notification_message
+      data:
+        tag: "{{ tag_id }}"
+        chronometer: true
+        when: "{{ as_timestamp(now()) | int }}"
+        timeout_after: !input timer_duration
+        actions:
+          - action: "{{ unique_action }}"
+            title: !input action_button_label
+          - action: "DISMISS"
+            title: "Dismiss"
 
-  # 2. Wait for ANY device to respond
+  # 2. Wait for the specific button press
   - wait_for_trigger:
       - platform: event
         event_type: mobile_app_notification_action
@@ -104,7 +93,7 @@ action:
       seconds: "{{ timer_seconds }}"
     continue_on_timeout: true
 
-  # 3. Decision Logic
+  # 3. Decision Logic & Action Conditions
   - if:
       - condition: template
         value_template: "{{ wait.trigger != none }}"
@@ -114,11 +103,8 @@ action:
         default: !input action_to_run
 
   # 4. Final Cleanup
-  - repeat:
-      for_each: "{{ notify_services }}"
-      sequence:
-        - service: "{{ repeat.item }}"
-          data:
-            message: "clear_notification"
-            data:
-              tag: "{{ tag_id }}"
+  - service: "{{ service_name }}"
+    data:
+      message: "clear_notification"
+      data:
+        tag: "{{ tag_id }}"
