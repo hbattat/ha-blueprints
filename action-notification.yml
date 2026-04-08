@@ -1,6 +1,6 @@
 blueprint:
-  name: Universal Pro Actionable Notification (Final Fix)
-  description: "Triggers a notification with a timer to multiple devices using robust service calls."
+  name: Universal Pro Actionable Notification (Safe Variables)
+  description: "Triggers a notification with a timer to multiple devices. Fixes the 'Unknown Device' error by pre-calculating service names."
   domain: automation
   input:
     universal_trigger:
@@ -56,22 +56,30 @@ mode: parallel
 max: 10
 
 variables:
-  # Map the inputs to variables for use in templates
+  # Pre-calculate everything here so the actions don't have to 'guess'
   timer_seconds: !input timer_duration
   unique_action: "{{ 'PRO_ACTION_' ~ context.id }}"
   tag_id: "pro_universal_timer"
-  devices: !input notify_devices
+  # This creates a clean list of notify service names (e.g., ['notify.mobile_app_pixel_7'])
+  notify_services: >
+    {% set devices = notify_devices %}
+    {% set ns = namespace(services=[]) %}
+    {% for device in devices %}
+      {% set name = device_attr(device, 'name') | lower | replace(' ', '_') | replace('-', '_') | replace('\'', '') %}
+      {% set ns.services = ns.services + [ 'notify.mobile_app_' ~ name ] %}
+    {% endfor %}
+    {{ ns.services }}
 
 trigger: !input universal_trigger
 
 condition: !input notification_conditions
 
 action:
-  # 1. Send Notifications to all selected devices
+  # 1. Send Notifications to all pre-calculated services
   - repeat:
-      for_each: "{{ devices }}"
+      for_each: "{{ notify_services }}"
       sequence:
-        - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | lower | replace(' ', '_') | replace('-', '_') | replace('\'', '') }}"
+        - service: "{{ repeat.item }}"
           data:
             title: !input notification_title
             message: !input notification_message
@@ -105,11 +113,11 @@ action:
       - choose: []
         default: !input action_to_run
 
-  # 4. Final Cleanup: Clear notifications from all devices
+  # 4. Final Cleanup
   - repeat:
-      for_each: "{{ devices }}"
+      for_each: "{{ notify_services }}"
       sequence:
-        - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | lower | replace(' ', '_') | replace('-', '_') | replace('\'', '') }}"
+        - service: "{{ repeat.item }}"
           data:
             message: "clear_notification"
             data:
