@@ -1,6 +1,6 @@
 blueprint:
-  name: Universal Pro Actionable Notification (Service-Group)
-  description: "Triggers a notification to a specific notify service or group."
+  name: Universal Pro Actionable Notification (Text Target)
+  description: "Triggers a notification to a text-defined service or group. No device selectors."
   domain: automation
   input:
     universal_trigger:
@@ -9,18 +9,18 @@ blueprint:
         trigger: {}
     notification_conditions:
       name: Notification Conditions
-      description: "Filters that must be true to send the alert."
+      description: "Filters for the trigger (e.g., Person is in Zone, Garage is Closed)."
       default: []
       selector:
         condition: {}
-    notify_service:
+    notify_target:
       name: Notify Service or Group
-      description: "Enter the service name, e.g., 'notify.mobile_app_pixel_7' or your group name 'notify.family_phones'."
+      description: "Type the service name manually (e.g., notify.mobile_app_pixel_7)."
       selector:
         text:
     action_conditions:
       name: Action Conditions
-      description: "Filters that must be true when you press the button."
+      description: "Filters that must be true when the button is pressed."
       default: []
       selector:
         condition: {}
@@ -56,8 +56,8 @@ mode: parallel
 max: 10
 
 variables:
-  # Map inputs to variables for use in templates
-  service_name: !input notify_service
+  # Using the new variable name to break the cache
+  target_service: !input notify_target
   timer_seconds: !input timer_duration
   unique_action: "{{ 'PRO_ACTION_' ~ context.id }}"
   tag_id: "pro_universal_timer"
@@ -68,7 +68,7 @@ condition: !input notification_conditions
 
 action:
   # 1. Send the Notification
-  - service: "{{ service_name }}"
+  - service: "{{ target_service }}"
     data:
       title: !input notification_title
       message: !input notification_message
@@ -93,7 +93,7 @@ action:
       seconds: "{{ timer_seconds }}"
     continue_on_timeout: true
 
-  # 3. Decision Logic & Action Conditions
+  # 3. Decision Logic
   - if:
       - condition: template
         value_template: "{{ wait.trigger != none }}"
@@ -103,7 +103,7 @@ action:
         default: !input action_to_run
 
   # 4. Final Cleanup
-  - service: "{{ service_name }}"
+  - service: "{{ target_service }}"
     data:
       message: "clear_notification"
       data:
