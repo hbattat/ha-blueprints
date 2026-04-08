@@ -1,29 +1,26 @@
 blueprint:
-  name: Universal Pro Actionable Notification
-  description: "Trigger-agnostic engine. Define triggers and filters in the UI; this handles the logic, timers, and multi-device delivery."
+  name: Universal Pro Actionable Notification (Fixed)
+  description: "Trigger-agnostic engine with multi-device support and reliable service delivery."
   domain: automation
   input:
     universal_trigger:
       name: Trigger(s)
-      description: What starts the automation? (e.g., Zone, Wi-Fi SSID, State change).
       selector:
         trigger: {}
     notification_conditions:
       name: Notification Conditions
-      description: Logic required to SEND the notification (e.g., Is Person A entering Zone B? Is the Garage closed?).
       default: []
       selector:
         condition: {}
     notify_devices:
       name: Devices to Notify
-      description: One or more mobile devices to receive the prompt.
+      description: Select one or more mobile devices.
       selector:
         device:
           integration: mobile_app
           multiple: true
     action_conditions:
       name: Action Conditions
-      description: Logic required to RUN the action after the button is pressed.
       default: []
       selector:
         condition: {}
@@ -62,33 +59,32 @@ variables:
   timer_seconds: !input timer_duration
   unique_action: "{{ 'PRO_ACTION_' ~ context.id }}"
   tag_id: "pro_universal_timer"
+  # This variable maps the selected device IDs to their respective notify services
+  devices: !input notify_devices
 
 trigger: !input universal_trigger
 
-# The "Filter": Only send if these conditions (like Zone/Person) match
 condition: !input notification_conditions
 
 action:
-  # 1. Multi-Device Delivery
+  # 1. Multi-Device Delivery using Service Calls
   - repeat:
-      for_each: !input notify_devices
+      for_each: "{{ devices }}"
       sequence:
-        - alias: "Send Notification"
-          domain: mobile_app
-          type: notify
-          device_id: "{{ repeat.item }}"
-          title: !input notification_title
-          message: !input notification_message
+        - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | lower | replace(' ', '_') | replace('-', '_') }}"
           data:
-            tag: "{{ tag_id }}"
-            chronometer: true
-            when: "{{ as_timestamp(now()) | int }}"
-            timeout_after: !input timer_duration
-            actions:
-              - action: "{{ unique_action }}"
-                title: !input action_button_label
-              - action: "DISMISS"
-                title: "Dismiss"
+            title: !input notification_title
+            message: !input notification_message
+            data:
+              tag: "{{ tag_id }}"
+              chronometer: true
+              when: "{{ as_timestamp(now()) | int }}"
+              timeout_after: !input timer_duration
+              actions:
+                - action: "{{ unique_action }}"
+                  title: !input action_button_label
+                - action: "DISMISS"
+                  title: "Dismiss"
 
   # 2. Wait for response
   - wait_for_trigger:
@@ -111,12 +107,10 @@ action:
 
   # 4. Multi-Device Cleanup
   - repeat:
-      for_each: !input notify_devices
+      for_each: "{{ devices }}"
       sequence:
-        - alias: "Clear Notification"
-          domain: mobile_app
-          type: notify
-          device_id: "{{ repeat.item }}"
-          message: "clear_notification"
+        - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | lower | replace(' ', '_') | replace('-', '_') }}"
           data:
-            tag: "{{ tag_id }}"
+            message: "clear_notification"
+            data:
+              tag: "{{ tag_id }}"
