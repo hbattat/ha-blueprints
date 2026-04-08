@@ -1,52 +1,35 @@
 blueprint:
-  name: Pro Universal Zone Actionable Notification
-  description: "Track multiple devices, notify multiple devices, and use dual-layer conditions."
+  name: Universal Pro Actionable Notification
+  description: "Trigger-agnostic engine. Define triggers and filters in the UI; this handles the logic, timers, and multi-device delivery."
   domain: automation
   input:
-    tracker_entities:
-      name: Devices to Track
-      description: One or more device trackers or persons to monitor.
+    universal_trigger:
+      name: Trigger(s)
+      description: What starts the automation? (e.g., Zone, Wi-Fi SSID, State change).
       selector:
-        entity:
-          domain: device_tracker
-          multiple: true
-    zone_entity:
-      name: Zone
+        trigger: {}
+    notification_conditions:
+      name: Notification Conditions
+      description: Logic required to SEND the notification (e.g., Is Person A entering Zone B? Is the Garage closed?).
+      default: []
       selector:
-        entity:
-          domain: zone
-    zone_event:
-      name: Zone Event
-      default: enter
-      selector:
-        select:
-          options:
-            - label: "Entering Zone"
-              value: enter
-            - label: "Leaving Zone"
-              value: leave
+        condition: {}
     notify_devices:
       name: Devices to Notify
-      description: Select one or more mobile devices to receive the prompt.
+      description: One or more mobile devices to receive the prompt.
       selector:
         device:
           integration: mobile_app
           multiple: true
-    notification_conditions:
-      name: Notification Conditions
-      description: Conditions required to SEND the notification (e.g., Is the Garage closed?).
-      default: []
-      selector:
-        condition: {}
     action_conditions:
       name: Action Conditions
-      description: Conditions required to RUN the action after the button is pressed.
+      description: Logic required to RUN the action after the button is pressed.
       default: []
       selector:
         condition: {}
     notification_title:
       name: Title
-      default: "Zone Alert"
+      default: "Action Required"
       selector:
         text:
     notification_message:
@@ -72,30 +55,25 @@ blueprint:
       selector:
         action: {}
 
-mode: parallel # Allows multiple family members to trigger this at once
+mode: parallel
 max: 10
 
 variables:
   timer_seconds: !input timer_duration
-  # Generate a unique action key for this specific run
   unique_action: "{{ 'PRO_ACTION_' ~ context.id }}"
-  tag_id: "pro_zone_timer"
+  tag_id: "pro_universal_timer"
 
-trigger:
-  - platform: zone
-    entity_id: !input tracker_entities
-    zone: !input zone_entity
-    event: !input zone_event
+trigger: !input universal_trigger
 
-# 1. Gatekeeper: Should we even send the notification?
+# The "Filter": Only send if these conditions (like Zone/Person) match
 condition: !input notification_conditions
 
 action:
-  # 1. Send Notifications to all selected devices
+  # 1. Multi-Device Delivery
   - repeat:
       for_each: !input notify_devices
       sequence:
-        - alias: "Send Notification to Device"
+        - alias: "Send Notification"
           domain: mobile_app
           type: notify
           device_id: "{{ repeat.item }}"
@@ -112,7 +90,7 @@ action:
               - action: "DISMISS"
                 title: "Dismiss"
 
-  # 2. Wait for ANY of the devices to respond
+  # 2. Wait for response
   - wait_for_trigger:
       - platform: event
         event_type: mobile_app_notification_action
@@ -122,21 +100,20 @@ action:
       seconds: "{{ timer_seconds }}"
     continue_on_timeout: true
 
-  # 3. Decision Logic
+  # 3. Final Gate and Execution
   - if:
       - condition: template
         value_template: "{{ wait.trigger != none }}"
-      # SECOND GATE: Check Action Conditions
       - condition: !input action_conditions
     then:
       - choose: []
         default: !input action_to_run
 
-  # 4. Final Cleanup: Clear notifications from ALL selected devices
+  # 4. Multi-Device Cleanup
   - repeat:
       for_each: !input notify_devices
       sequence:
-        - alias: "Clear Notification from Device"
+        - alias: "Clear Notification"
           domain: mobile_app
           type: notify
           device_id: "{{ repeat.item }}"
