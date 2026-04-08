@@ -1,6 +1,6 @@
 blueprint:
-  name: Universal Pro Actionable Notification (Fixed)
-  description: "Trigger-agnostic engine with multi-device support and reliable service delivery."
+  name: Universal Pro Actionable Notification (Final Fix)
+  description: "Triggers a notification with a timer to multiple devices using robust service calls."
   domain: automation
   input:
     universal_trigger:
@@ -56,10 +56,10 @@ mode: parallel
 max: 10
 
 variables:
+  # Map the inputs to variables for use in templates
   timer_seconds: !input timer_duration
   unique_action: "{{ 'PRO_ACTION_' ~ context.id }}"
   tag_id: "pro_universal_timer"
-  # This variable maps the selected device IDs to their respective notify services
   devices: !input notify_devices
 
 trigger: !input universal_trigger
@@ -67,11 +67,11 @@ trigger: !input universal_trigger
 condition: !input notification_conditions
 
 action:
-  # 1. Multi-Device Delivery using Service Calls
+  # 1. Send Notifications to all selected devices
   - repeat:
       for_each: "{{ devices }}"
       sequence:
-        - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | lower | replace(' ', '_') | replace('-', '_') }}"
+        - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | lower | replace(' ', '_') | replace('-', '_') | replace('\'', '') }}"
           data:
             title: !input notification_title
             message: !input notification_message
@@ -86,7 +86,7 @@ action:
                 - action: "DISMISS"
                   title: "Dismiss"
 
-  # 2. Wait for response
+  # 2. Wait for ANY device to respond
   - wait_for_trigger:
       - platform: event
         event_type: mobile_app_notification_action
@@ -96,7 +96,7 @@ action:
       seconds: "{{ timer_seconds }}"
     continue_on_timeout: true
 
-  # 3. Final Gate and Execution
+  # 3. Decision Logic
   - if:
       - condition: template
         value_template: "{{ wait.trigger != none }}"
@@ -105,11 +105,11 @@ action:
       - choose: []
         default: !input action_to_run
 
-  # 4. Multi-Device Cleanup
+  # 4. Final Cleanup: Clear notifications from all devices
   - repeat:
       for_each: "{{ devices }}"
       sequence:
-        - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | lower | replace(' ', '_') | replace('-', '_') }}"
+        - service: "notify.mobile_app_{{ device_attr(repeat.item, 'name') | lower | replace(' ', '_') | replace('-', '_') | replace('\'', '') }}"
           data:
             message: "clear_notification"
             data:
